@@ -43,6 +43,12 @@ export default function AppLayout() {
   });
   const [notifOpen, setNotifOpen] = useState(false);
   const toast = useToast();
+  const toastRef = useRef(toast);
+  const appLoadTime = useRef(Date.now());
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   useEffect(() => {
     localStorage.setItem('agriweight_notifications', JSON.stringify(notifications));
@@ -51,7 +57,6 @@ export default function AppLayout() {
 
   useEffect(() => {
     const recordsRef = ref(db, 'weight_records');
-    const appLoadTime = Date.now();
 
     const unsub = onChildAdded(recordsRef, (snap) => {
       if (!snap.exists()) return;
@@ -59,7 +64,7 @@ export default function AppLayout() {
       
       const recordTime = new Date(record.created_at).getTime();
       // Hanya notifikasi record baru yang dibuat setelah web dibuka
-      if (recordTime > appLoadTime - 5000) {
+      if (recordTime > appLoadTime.current) {
         const newNotif = {
           id: record.id,
           title: 'Penimbangan Baru!',
@@ -67,18 +72,24 @@ export default function AppLayout() {
           time: new Date(record.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           read: false,
         };
-        setNotifications((prev) => [newNotif, ...prev]);
+        
+        setNotifications((prev) => {
+          // Cegah duplikasi notifikasi dengan ID yang sama
+          if (prev.some((n) => n.id === record.id)) return prev;
 
-        // Tampilkan toast di layar
-        toast.success(
-          `${record.nama_petani} menimbang karet di ${record.nama_alat} seberat ${record.hasil_timbangan?.toFixed(2)} Kg.`,
-          'Penimbangan Baru!'
-        );
+          // Tampilkan toast di layar hanya sekali
+          toastRef.current.success(
+            `${record.nama_petani} menimbang karet di ${record.nama_alat} seberat ${record.hasil_timbangan?.toFixed(2)} Kg.`,
+            'Penimbangan Baru!'
+          );
+
+          return [newNotif, ...prev];
+        });
       }
     });
 
     return () => unsub();
-  }, [toast]);
+  }, []);
 
   async function handleLogout() {
     setProfileOpen(false);
