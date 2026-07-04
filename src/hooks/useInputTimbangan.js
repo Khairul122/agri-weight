@@ -127,6 +127,7 @@ export function useInputTimbangan() {
     setError('');
     const id  = `WR-${Date.now()}`;
     const now = new Date().toISOString();
+    const deviceRefPath = `devices/${namaAlat}`;
     try {
       // Simpan ke weight_records
       await set(ref(db, `weight_records/${id}`), {
@@ -141,7 +142,7 @@ export function useInputTimbangan() {
         updated_at:      now,
       });
       // Reset status alat fisik ke idle
-      await update(ref(db, DEVICE_REF), {
+      await update(ref(db, deviceRefPath), {
         status:         'idle',
         nama_petani:    '',
         nama_alat:      '',
@@ -170,9 +171,10 @@ export function useInputTimbangan() {
     setSavedId(null);
 
     const sessionId = `WR-${Date.now()}`;
+    const deviceRefPath = `devices/${namaAlat}`;
 
     // Tulis ke Firebase → alat fisik akan membaca ini
-    await update(ref(db, DEVICE_REF), {
+    await update(ref(db, deviceRefPath), {
       status:         'menimbang',
       nama_petani:    namaPetani.trim(),
       nama_alat:      namaAlat.trim(),
@@ -183,7 +185,7 @@ export function useInputTimbangan() {
     });
 
     // Dengarkan perubahan dari alat fisik secara real-time
-    const deviceRef = ref(db, DEVICE_REF);
+    const deviceRef = ref(db, deviceRefPath);
     const unsub = onValue(deviceRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.val();
