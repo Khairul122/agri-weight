@@ -11,7 +11,6 @@ export default function InputTimbangan() {
     saving,
     savedId,
     deviceOnline,
-    sensorConnected,
     elapsed,
     sessionStart,
     error,
@@ -135,14 +134,7 @@ export default function InputTimbangan() {
               </div>
             )}
 
-            {/* Peringatan sensor terputus */}
-            {isActive && deviceOnline && !sensorConnected && (
-              <div className="mt-5 inline-flex items-center gap-2 text-status-error text-xs
-                              bg-status-error/10 px-4 py-2 rounded-full">
-                <span className="material-symbols-outlined text-sm">link_off</span>
-                Sensor berat tidak terdeteksi! Periksa kabel load cell.
-              </div>
-            )}
+
 
             {/* Banner sukses setelah selesai */}
             {isDone && savedId && (
@@ -386,11 +378,7 @@ export default function InputTimbangan() {
                 ok: deviceOnline,
                 desc: deviceOnline ? 'Terhubung & siap menimbang' : 'Belum terhubung ke Firebase',
               },
-              {
-                label: 'Sensor Berat (HX711)',
-                ok: deviceOnline && sensorConnected,
-                desc: !deviceOnline ? 'Menunggu alat online...' : sensorConnected ? 'Sensor terdeteksi (OK)' : 'Sensor tidak terdeteksi (ERROR)',
-              },
+
               {
                 label: 'Status Sesi',
                 ok: isActive || isDone,

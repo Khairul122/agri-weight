@@ -29,7 +29,7 @@ export function useInputTimbangan() {
   const [saving, setSaving]         = useState(false);
   const [savedId, setSavedId]       = useState(null);
   const [deviceOnline, setDeviceOnline] = useState(false);
-  const [sensorConnected, setSensorConnected] = useState(false);
+  const [deviceData, setDeviceData]     = useState(null);
   const [elapsed, setElapsed]       = useState(0);
   const [sessionStart, setSessionStart] = useState(null);
   const [error, setError]           = useState('');
@@ -41,7 +41,6 @@ export function useInputTimbangan() {
   const [hargaPerKg, setHargaPerKg] = useState(0);
 
   /* ── Refs internal ── */
-  const unsubRef  = useRef(null); // Firebase onValue unsubscribe
   const timerRef  = useRef(null); // interval timer
   const phaseRef  = useRef('idle'); // hindari stale closure di listener
 
@@ -83,26 +82,67 @@ export function useInputTimbangan() {
     return () => unsub();
   }, []);
 
-  // Dengarkan status online alat fisik dan status sensor secara real-time berdasarkan namaAlat yang terpilih
+  // Dengarkan seluruh data dari alat terpilih secara real-time berdasarkan namaAlat yang terpilih
   useEffect(() => {
     if (!namaAlat) {
+      setDeviceData(null);
       setDeviceOnline(false);
-      setSensorConnected(false);
       return;
     }
     const deviceRef = ref(db, `devices/${namaAlat}`);
     const unsub = onValue(deviceRef, (snap) => {
       if (snap.exists()) {
         const data = snap.val();
-        setDeviceOnline(data.is_online ?? false);
-        setSensorConnected(data.is_sensor_connected ?? false);
+        setDeviceData(data);
+        
+        // Alat fisik bisa menandai selesai sendiri (mis. berat stabil)
+        if (data.status === 'selesai' && phaseRef.current === 'menimbang') {
+          saveRecord(data.current_weight ?? 0);
+        }
       } else {
+        setDeviceData(null);
         setDeviceOnline(false);
-        setSensorConnected(false);
       }
     });
     return () => unsub();
-  }, [namaAlat]);
+  }, [namaAlat, saveRecord]);
+
+  // Timer untuk memantau detak jantung (heartbeat) alat fisik
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!deviceData || !namaAlat) {
+        setDeviceOnline(false);
+        return;
+      }
+
+      const now = Date.now();
+      const lastActive = deviceData.last_active ?? 0;
+      const diffMs = now - lastActive;
+
+      // 1. Jika data diterima dalam kurun waktu 5 detik (5000 ms), maka data terakhir yang diambil
+      if (diffMs <= 5000) {
+        setDeviceOnline(true);
+        if (phaseRef.current === 'menimbang') {
+          setLiveWeight(deviceData.current_weight ?? 0);
+        }
+      } else {
+        // Jika tidak aktif dalam 5 detik, tandai offline
+        setDeviceOnline(false);
+        // liveWeight tetap pada nilai terakhir yang diterima (freeze), tidak diupdate ke 0
+      }
+
+      // 2. Jika alat fisik tidak aktif selama 5 menit (300.000 ms), ubah status alat jadi offline di Firebase
+      if (diffMs >= 300000 && deviceData.is_online) {
+        const deviceRefPath = `devices/${namaAlat}`;
+        update(ref(db, deviceRefPath), {
+          is_online: false,
+          status: 'idle',
+        }).catch(err => console.error("Gagal menonaktifkan alat setelah 5 menit:", err));
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [deviceData, namaAlat]);
 
   // Update komoditas dan harga saat ID harga terpilih berubah
   useEffect(() => {
@@ -131,7 +171,6 @@ export function useInputTimbangan() {
   useEffect(() => {
     return () => {
       clearInterval(timerRef.current);
-      if (unsubRef.current) unsubRef.current();
     };
   }, []);
 
@@ -199,25 +238,6 @@ export function useInputTimbangan() {
       session_id:     sessionId,
     });
 
-    // Dengarkan perubahan dari alat fisik secara real-time
-    const deviceRef = ref(db, deviceRefPath);
-    const unsub = onValue(deviceRef, (snap) => {
-      if (!snap.exists()) return;
-      const data = snap.val();
-
-      // Update berat live
-      setLiveWeight(data.current_weight ?? 0);
-      setDeviceOnline(data.is_online ?? false);
-
-      // Alat fisik bisa menandai selesai sendiri (mis. berat stabil)
-      if (data.status === 'selesai' && phaseRef.current === 'menimbang') {
-        unsub(); // hentikan listener sebelum save
-        unsubRef.current = null;
-        saveRecord(data.current_weight ?? 0);
-      }
-    });
-
-    unsubRef.current = unsub;
     setSessionStart(new Date());
     setPhase('menimbang');
   }
@@ -225,14 +245,11 @@ export function useInputTimbangan() {
   /* ── SELESAI manual oleh user ── */
   async function handleSelesai() {
     const finalKg = liveWeight;
-    // Hentikan listener RTDB
-    if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
     await saveRecord(finalKg);
   }
 
   /* ── SESI BARU ── */
   function handleSesiBaru() {
-    if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
     setPhase('idle');
     setNamaPetani('');
     setNamaAlat(deviceList[0] ?? '');
@@ -257,7 +274,6 @@ export function useInputTimbangan() {
     saving,
     savedId,
     deviceOnline,
-    sensorConnected,
     elapsed,
     sessionStart,
     error,
